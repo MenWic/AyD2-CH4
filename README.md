@@ -1,184 +1,117 @@
-Revisa la implementación actual del challenge GlobalShop. La estructura ya está correcta y no debe cambiarse. No agregues API, controllers, DTOs, JPA, repositories, ports, adapters formales, endpoints ni nuevas capas.
+# Challenge 3: EX4 GlobalShop
 
-El objetivo de esta pasada es hacer ajustes finos de claridad, naming y depuración de tests, manteniendo una suite más compacta, crítica y realista.
+Este proyecto contiene la solucion del challenge de refactorizacion para el caso GlobalShop.
 
-No cambies la lógica de negocio ni las reglas de cálculo.
+En la raiz del proyecto estan los archivos base del ejercicio:
 
-1. Renombrar constantes que dicen DISCOUNT pero realmente representan factores multiplicadores.
+* Enunciado.md contiene las instrucciones del challenge.
+* initial_code.java contiene el codigo inicial del que se partio.
 
-Ejemplos:
-- LOW_TIER_DISCOUNT -> LOW_TIER_FACTOR
-- MID_TIER_DISCOUNT -> MID_TIER_FACTOR
-- HIGH_TIER_DISCOUNT -> HIGH_TIER_FACTOR
-- PREMIUM_DISCOUNT -> PREMIUM_FACTOR
-- RETAIL_PREMIUM_DISCOUNT -> RETAIL_PREMIUM_FACTOR
-- WHOLESALE_LOW_DISCOUNT -> WHOLESALE_LOW_FACTOR
-- WHOLESALE_HIGH_DISCOUNT -> WHOLESALE_HIGH_FACTOR
-- WHOLESALE_COMPATIBILITY_DISCOUNT -> WHOLESALE_COMPATIBILITY_FACTOR
-- SAVE10_DISCOUNT -> SAVE10_FACTOR, si el valor representa 0.90
-- SAVE20_DISCOUNT -> SAVE20_FACTOR, si el valor representa 0.80
-- BLACKFRIDAY_DISCOUNT -> BLACKFRIDAY_FACTOR, si el valor representa 0.70
-- WELCOME_DISCOUNT -> WELCOME_FACTOR, si el valor representa 0.85
+## Que HICE
 
-No cambies valores. Solo mejora nombres cuando el valor sea un factor multiplicador.
+El codigo inicial tenia muchas responsabilidades en la clase:
 
-2. En StandardPricingStrategy, hacer explícito el caso CustomerType.INTERNATIONAL.
+* calculo de precios
+* descuentos
+* guardado
+* auditoria
+* notificacion
+* ejecucion manual.
 
-Evitar que INTERNATIONAL sea tratado como caso implícito por descarte.
+Solucioné separando esas responsabilidades en distintos archivos buscando tener SRP, OCP, LSP, DIP mediante disntintos patrones de diseño.
 
-La lógica debe quedar clara:
-- RETAIL
-- WHOLESALE
-- INTERNATIONAL
-- caso no soportado: lanzar excepción clara
+La implementacion:
 
-No modificar resultados esperados.
 
-3. Agregar test para PricingStrategyResolver cuando falta una estrategia.
+Organizacion:
 
-Caso:
-- construir resolver sin BulkPricingStrategy
-- llamar resolve(OrderType.BULK)
-- debe lanzar IllegalArgumentException
+```text
+orders
+-- application
+-- command
+-- domain
+-- exception
+-- pricing
+-- promotion
+-- support
+```
 
-Nombre sugerido:
-- resolveThrowsWhenStrategyIsMissing
+## Decisiones principales
 
-4. Agregar test para PromotionPolicyResolver cuando falta una policy.
+Usé Strategy para separar el calculo por tipo de orden (OrderType):
 
-Caso:
-- construir resolver sin WelcomePromotionPolicy
-- llamar resolve(PromotionCode.WELCOME)
-- debe lanzar IllegalArgumentException
+* STANDARD
+* EXPRESS
+* BULK
 
-Nombre sugerido:
-- resolveThrowsWhenPolicyIsMissing
+Las promociones las dejé separadas para evitar condicionales grandes.
 
-5. Reducir la cantidad de tests y dejar solo los más críticos.
+Usé OrderProcessorFacade como punto central para procesar una orden.
 
-No queremos una suite enorme ni tests sobrepensados. Queremos una suite compacta que demuestre correctamente:
-- reglas principales;
-- bordes de negocio relevantes;
-- composición realista de reglas;
-- validaciones importantes;
-- ejecución del flujo principal;
-- fallos controlados en resolvers.
+Flujo principal que seguí:
 
-Eliminar tests que:
-- repitan exactamente una regla ya cubierta por otro test;
-- prueben microdetalles internos sin impacto funcional;
-- sean demasiado artificiales para el reto;
-- validen clases triviales cuando la facade ya cubre el comportamiento;
-- aumenten cantidad sin aportar confianza real.
+```text
+calcular subtotal
+aplicar promocion
+guardar orden
+registrar auditoria
+notificar
+```
 
-No eliminar tests que cubran reglas críticas o decisiones ambiguas del enunciado.
+El guardado es en memoria con InMemoryOrderStore. La auditoria se registra en archivo y la notificacion la simulo por consola.
 
-6. Suite mínima recomendada, compacta y defendible.
+## Reglas consideradas
 
-Mantener o ajustar tests para cubrir estos casos.
+Para montos usé BigDecimal.
 
-Pricing:
+Las promociones se aplican despues del calculo base.
 
-- STANDARD + RETAIL + premium aplica 10%.
-  Motivo: valida regla premium en STANDARD.
+Para BULK tomé esta interpretacion:
 
-- STANDARD + WHOLESALE con monto > 1000 aplica 15%.
-  Motivo: valida regla wholesale más importante.
+```text
+amount <= 2000              a: 5% descuento
+amount > 2000 && <= 5000    a: 15% descuento
+amount > 5000               a; 25% descuento
+```
 
-- STANDARD + INTERNATIONAL + weekend aplica recargos correctamente.
-  Motivo: valida cliente internacional y recargo de fin de semana.
+## Tests
+```text
+src/test/java/menwic/ayd2/ex4/orders
+```
 
-- EXPRESS + WHOLESALE + premium aplica recargo express, ajuste wholesale y descuento premium.
-  Motivo: cubre combinación realista y orden de aplicación.
+Para calculos principales, promociones, bordes importantes, validaciones y flujo general.
 
-- BULK con monto <= 2000 aplica 5%.
-  Motivo: valida tramo bajo.
+## Comandos
 
-- BULK con monto 2000.01 aplica 15%.
-  Motivo: valida borde de cambio al tramo medio.
+Ejecutar tests:
 
-- BULK con monto 5000.01 aplica 25%.
-  Motivo: valida borde de cambio al tramo alto.
-
-No es necesario mantener todos los casos intermedios si estos ya cubren la lógica de tramos y bordes.
-
-Promotions:
-
-- SAVE10 aplica 10%.
-- BLACKFRIDAY aplica 30%.
-- null retorna NoPromotionPolicy o mantiene subtotal, según cómo esté implementado.
-- PromotionPolicyResolver lanza excepción si falta una policy.
-
-No es obligatorio mantener tests individuales para SAVE20 y WELCOME si la estructura de policies ya queda clara y BLACKFRIDAY/SAVE10 cubren la mecánica. Si WELCOME se usa para el test de resolver faltante, suficiente.
-
-Facade:
-
-- procesa una orden completa y retorna total correcto.
-- STANDARD + INTERNATIONAL + weekend + BLACKFRIDAY valida que la promoción se aplica al final.
-- guarda, audita y notifica la orden en el flujo principal.
-- rechaza orden nula.
-- rechaza monto negativo o cero.
-- rechaza tipo de orden nulo o tipo de cliente nulo.
-
-Agrupar validaciones relacionadas con tests parametrizados si ayuda a reducir cantidad sin perder claridad.
-
-Resolvers:
-
-- PricingStrategyResolver resuelve una strategy existente.
-- PricingStrategyResolver lanza excepción si falta una strategy.
-- PromotionPolicyResolver retorna NoPromotionPolicy con null.
-- PromotionPolicyResolver lanza excepción si falta una policy.
-
-Support:
-
-- FileOrderAuditTest con @TempDir solo si aporta valor y no complica.
-- InMemoryOrderStoreTest puede eliminarse si su comportamiento queda suficientemente cubierto por la facade.
-
-Commands:
-
-- No crear tests individuales para SaveOrderCommand, AuditOrderCommand o NotifyCustomerCommand si la facade ya verifica que guardar, auditar y notificar ocurren.
-- Solo mantener tests de commands si ya existen y aportan algo distinto al flujo principal.
-
-7. No hacer cambios de arquitectura.
-
-No cambiar:
-- estructura de paquetes;
-- nombres principales de clases;
-- OrderProcessorFacade;
-- PricingStrategy;
-- PromotionPolicy;
-- OrderStore;
-- OrderAudit;
-- OrderNotifier;
-- support;
-- reglas de negocio;
-- enfoque de refactor simple.
-
-8. Estilo de código.
-
-Mantener:
-- nombres claros y autodescriptivos;
-- sin variables tipo a, b, c, d;
-- sin comentarios innecesarios;
-- sin emojis;
-- sin double para dinero;
-- sin strings mágicos para tipos de orden, cliente o promoción;
-- sin mezclar cálculo con guardado, auditoría o notificación.
-
-9. Ejecutar tests.
-
-Al finalizar ejecutar:
-
+```bash
 mvn test
+```
 
-Si el Maven Wrapper está incompleto, reportar que falta .mvn/wrapper y usar mvn test si está disponible.
+Ejecutar la aplicacion:
 
-10. Reporte final esperado.
+```bash
+mvn spring-boot:run
+```
 
-Reportar brevemente:
-- constantes renombradas;
-- tests agregados;
-- tests eliminados y razón breve;
-- cantidad final aproximada de tests;
-- resultado de mvn test;
-- confirmar que no se cambió la arquitectura.
+Con Maven Wrapper:
+
+```bash
+./mvnw test
+./mvnw spring-boot:run
+```
+
+En Windows:
+
+```bash
+mvnw.cmd test
+mvnw.cmd spring-boot:run
+```
+
+
+## Comandos
+Ejecutar tests:
+```bash
+./mvnw test
+```
